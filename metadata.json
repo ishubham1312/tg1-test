@@ -1,0 +1,6 @@
+{
+  "name": "Test Genius",
+  "description": "An intelligent test generation and practice platform powered by Gemini API. Create customized tests from various input types like documents, syllabus text, or topics, and practice with timed quizzes and instant feedback.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
