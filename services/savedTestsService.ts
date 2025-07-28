@@ -1,35 +1,30 @@
-import { LOCAL_STORAGE_SAVED_TESTS_KEY } from '../constants';
+// This file is deprecated - functionality moved to DatabaseService
+// Keeping for backward compatibility during migration
+
 import { SavedTestState } from '../types';
 
 export function getSavedTests(): SavedTestState[] {
-  try {
-    const data = localStorage.getItem(LOCAL_STORAGE_SAVED_TESTS_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
+  console.warn('getSavedTests is deprecated. Use DatabaseService.getSavedTests instead.');
+  return [];
 }
 
 export function addSavedTest(test: SavedTestState) {
-  const tests = getSavedTests();
-  tests.unshift(test); // Add to the start
-  localStorage.setItem(LOCAL_STORAGE_SAVED_TESTS_KEY, JSON.stringify(tests));
+  console.warn('addSavedTest is deprecated. Use DatabaseService.saveSavedTest instead.');
 }
 
 export function removeSavedTest(id: string) {
-  const tests = getSavedTests().filter(t => t.id !== id);
-  localStorage.setItem(LOCAL_STORAGE_SAVED_TESTS_KEY, JSON.stringify(tests));
+  console.warn('removeSavedTest is deprecated. Use DatabaseService.deleteSavedTest instead.');
 }
 
 export function clearSavedTests() {
-  localStorage.removeItem(LOCAL_STORAGE_SAVED_TESTS_KEY);
+  console.warn('clearSavedTests is deprecated.');
 }
 
 export function findSavedTestById(id: string): SavedTestState | undefined {
-  return getSavedTests().find(t => t.id === id);
+  console.warn('findSavedTestById is deprecated.');
+  return undefined;
 }
 
 export function updateSavedTest(updated: SavedTestState) {
-  const tests = getSavedTests().map(t => t.id === updated.id ? updated : t);
-  localStorage.setItem(LOCAL_STORAGE_SAVED_TESTS_KEY, JSON.stringify(tests));
-} 
+  console.warn('updateSavedTest is deprecated.');
+}

@@ -9,7 +9,6 @@ import {
 } from './Icons';
 import { cn } from './Button';
 import { HistoryView } from './HistoryView';
-import { getSavedTests, removeSavedTest } from '../services/savedTestsService';
 import { SavedTestState } from '../types';
 
 interface ProfileSidebarProps {
@@ -364,13 +363,16 @@ const KnowTheAppView: React.FC = () => {
     );
 };
 
-const SavedTestsView: React.FC<{ onResumeSavedTest: (test: SavedTestState) => void }> = ({ onResumeSavedTest }) => {
-  const [savedTests, setSavedTests] = React.useState<SavedTestState[]>(getSavedTests());
+const SavedTestsView: React.FC<{ 
+  savedTests: SavedTestState[];
+  onResumeSavedTest: (test: SavedTestState) => void;
+  savedTests: SavedTestState[];
+  onDeleteSavedTest: (id: string) => void;
+}> = ({ savedTests, onResumeSavedTest, onDeleteSavedTest }) => {
 
   const handleDelete = (id: string) => {
     if (window.confirm('Delete this saved test?')) {
-      removeSavedTest(id);
-      setSavedTests(getSavedTests());
+      onDeleteSavedTest(id);
     }
   };
 
@@ -431,7 +433,7 @@ interface ProfilePageProps {
 export const ProfilePage: React.FC<ProfilePageProps> = ({ 
     user, onUpdateUser, onSignOut, darkMode, toggleDarkMode, onNavigateHome, history, 
     onRetakeTest, onViewDetails, onViewScore, onDeleteEntry, onClearHistory, currentUserRank,
-    currentUserFinalScore, onResumeSavedTest
+    currentUserFinalScore, onResumeSavedTest, savedTests
 }) => {
     const [activeTab, setActiveTab] = useState<ProfileTab>(ProfileTab.PROFILE);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -457,7 +459,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     isEmbedded={true}
                 />;
             case ProfileTab.SAVED_TESTS:
-                return <SavedTestsView onResumeSavedTest={onResumeSavedTest} />;
+                return <SavedTestsView 
+                    savedTests={savedTests}
+                    onResumeSavedTest={onResumeSavedTest} 
+                    onDeleteSavedTest={(id) => {
+                        // This will be handled in App.tsx through the database service
+                    }}
+                />;
             case ProfileTab.SETTINGS:
                 return <SettingsView user={user} onSignOut={onSignOut} darkMode={darkMode} toggleDarkMode={toggleDarkMode} />;
             case ProfileTab.FEEDBACK:

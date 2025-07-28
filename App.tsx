@@ -16,10 +16,10 @@ import { LeaderboardPage } from './components/LeaderboardPage';
 import { Question, TestInputMethod, TimeSettings, TestPhase, QuestionStatus, LanguageOption, NegativeMarkingSettings, PendingTestConfig, TestHistoryEntry, InProgressTestState, AuthPhase, User, SavedTestState } from './types';
 import { generateQuestionsFromContent, extractTextFromInlineData } from './services/geminiService';
 import { SUPPORTED_PDF_MIME_TYPE, LOCAL_STORAGE_HISTORY_KEY, LOCAL_STORAGE_IN_PROGRESS_KEY } from './constants'; 
-import { mockUsers, mockUserHistories } from './services/mockData';
 import { XCircleIcon } from './components/Icons';
 import Button from './components/Button';
-import { addSavedTest, removeSavedTest } from './services/savedTestsService';
+import { AuthService } from './services/authService';
+import { DatabaseService } from './services/databaseService';
 
 const GeneratingTestView: React.FC<{ testName: string }> = ({ testName }) => {
   const loadingMessages = [
@@ -62,7 +62,6 @@ const GeneratingTestView: React.FC<{ testName: string }> = ({ testName }) => {
   );
 };
 
-const LOCAL_STORAGE_AUTH_KEY = 'testGeniusAuth';
 
 export function App() {
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -83,12 +82,7 @@ export function App() {
 
 
   const [currentSetupConfig, setCurrentSetupConfig] = useState<PendingTestConfig | null>(null);
-  const [testHistory, setTestHistory] = useState<TestHistoryEntry[]>(() => {
-    try {
-      const savedHistory = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
-      return savedHistory ? JSON.parse(savedHistory) : [];
-    } catch { return []; }
-  });
+  const [testHistory, setTestHistory] = useState<TestHistoryEntry[]>([]);
   const [currentTestSessionId, setCurrentTestSessionId] = useState<string | null>(null);
   const [isRetakeMode, setIsRetakeMode] = useState<boolean>(false);
   const [savedInProgressTest, setSavedInProgressTest] = useState<InProgressTestState | null>(null);
@@ -101,22 +95,51 @@ export function App() {
 
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [allHistories, setAllHistories] = useState<Record<string, TestHistoryEntry[]>>({});
+  const [savedTests, setSavedTests] = useState<SavedTestState[]>([]);
 
 
   useEffect(() => {
-    try {
-      const savedAuth = localStorage.getItem(LOCAL_STORAGE_AUTH_KEY);
-      if (savedAuth) {
-        const user: User = JSON.parse(savedAuth);
-        setCurrentUser(user);
+    // Check for existing session
+    const initializeAuth = async () => {
+      const user = await AuthService.getCurrentUser();
+      if (user) {
+        setCurrentUser({
+          name: user.name,
+          email: user.email,
+          initials: user.initials
+        });
         setIsAuthenticated(true);
         setTestPhase(TestPhase.HOME);
+        
+        // Load user data
+        await loadUserData(user.id);
       } else {
         setTestPhase(TestPhase.AUTH);
       }
-    } catch {
-      setTestPhase(TestPhase.AUTH);
-    }
+    };
+
+    initializeAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = AuthService.onAuthStateChange(async (user) => {
+      if (user) {
+        setCurrentUser({
+          name: user.name,
+          email: user.email,
+          initials: user.initials
+        });
+        setIsAuthenticated(true);
+        setTestPhase(TestPhase.HOME);
+        await loadUserData(user.id);
+      } else {
+        setCurrentUser(null);
+        setIsAuthenticated(false);
+        setTestPhase(TestPhase.AUTH);
+        setTestHistory([]);
+        setSavedTests([]);
+        clearInProgressTest();
+      }
+    });
     
     const savedInProgressData = localStorage.getItem(LOCAL_STORAGE_IN_PROGRESS_KEY);
     if (savedInProgressData) {
@@ -131,22 +154,31 @@ export function App() {
         localStorage.removeItem(LOCAL_STORAGE_IN_PROGRESS_KEY);
       }
     }
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(testHistory));
-  }, [testHistory]);
+  const loadUserData = async (userId: string) => {
+    try {
+      // Load test history
+      const history = await DatabaseService.getTestHistory(userId);
+      setTestHistory(history);
 
-  useEffect(() => {
-      if (isAuthenticated && currentUser) {
-        const otherUsers = mockUsers.filter(u => u.email !== currentUser.email);
-        setAllUsers([currentUser, ...otherUsers]);
+      // Load saved tests
+      const saved = await DatabaseService.getSavedTests(userId);
+      setSavedTests(saved);
 
-        const combinedHistories = { ...mockUserHistories };
-        combinedHistories[currentUser.email] = testHistory;
-        setAllHistories(combinedHistories);
-      }
-  }, [isAuthenticated, currentUser, testHistory]);
+      // Load leaderboard data
+      const { users, histories } = await DatabaseService.getLeaderboardData();
+      setAllUsers(users.map(u => ({ name: u.name, email: u.email, initials: u.initials })));
+      setAllHistories(histories);
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
+
 
   const rankedUsers = React.useMemo(() => {
     const userStats = allUsers
@@ -232,7 +264,6 @@ export function App() {
   }, []);
 
   const handleSignIn = (user: User) => {
-    localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(user));
     setCurrentUser(user);
     setIsAuthenticated(true);
     setTestPhase(TestPhase.HOME);
@@ -240,16 +271,17 @@ export function App() {
   
   const handleUpdateUser = (updatedUser: User) => {
     setCurrentUser(updatedUser);
-    localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(updatedUser));
+    if (currentUser) {
+      AuthService.updateProfile(currentUser.email, {
+        name: updatedUser.name,
+        initials: updatedUser.initials
+      });
+    }
   };
   
-  const handleSignOut = () => {
-    localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY);
-    setCurrentUser(null);
-    setIsAuthenticated(false);
-    clearInProgressTest();
-    setTestPhase(TestPhase.AUTH);
-    setAuthPhase(AuthPhase.SIGN_IN);
+  const handleSignOut = async () => {
+    await AuthService.signOut();
+    // Auth state change listener will handle the rest
   };
 
   const handleNavigateToProfile = () => {
@@ -394,8 +426,8 @@ export function App() {
     setError(null); 
   };
 
-  const saveOrUpdateTestInHistory = useCallback((questionsToScore: Question[], isFromReviewCorrection: boolean) => {
-    if (!currentSetupConfig || questionsToScore.length === 0 || !currentTestSessionId) return;
+  const saveOrUpdateTestInHistory = useCallback(async (questionsToScore: Question[], isFromReviewCorrection: boolean) => {
+    if (!currentSetupConfig || questionsToScore.length === 0 || !currentTestSessionId || !currentUser) return;
 
     let correctCount = 0;
     let attemptedCount = 0;
@@ -435,30 +467,33 @@ export function App() {
     const finalTestNameForHistory = currentTestName || currentSetupConfig.testName || "Untitled Test";
     const sessionHasUserCorrections = isFromReviewCorrection || questionsToScore.some(q => q.wasCorrectedByUser);
 
-    const historyEntry: TestHistoryEntry = {
-      id: currentTestSessionId, 
-      testName: finalTestNameForHistory,
-      dateCompleted: Date.now(),
-      scorePercentage: score,
-      totalQuestions: questionsToScore.length,
-      correctAnswers: correctCount,
-      attemptedQuestions: attemptedCount,
-      negativeMarkingSettings: currentSetupConfig.negativeMarking,
-      originalConfig: { ...currentSetupConfig, testName: finalTestNameForHistory }, 
-      questions: questionsToScore,
-      wasCorrectedByUser: sessionHasUserCorrections,
-    };
-    
-    setTestHistory(prevHistory => {
-      const existingEntryIndex = prevHistory.findIndex(entry => entry.id === currentTestSessionId);
-      if (existingEntryIndex > -1) {
-        const updatedHistory = [...prevHistory];
-        updatedHistory[existingEntryIndex] = historyEntry; 
-        return updatedHistory;
+    try {
+      // Find user ID from email
+      const userId = allUsers.find(u => u.email === currentUser.email)?.email;
+      if (!userId) return;
+
+      const savedSessionId = await DatabaseService.saveTestSession(
+        userId,
+        finalTestNameForHistory,
+        score,
+        questionsToScore.length,
+        correctCount,
+        attemptedCount,
+        questionsToScore,
+        { ...currentSetupConfig, testName: finalTestNameForHistory },
+        sessionHasUserCorrections,
+        currentTestSessionId
+      );
+
+      if (savedSessionId) {
+        // Reload test history
+        const history = await DatabaseService.getTestHistory(userId);
+        setTestHistory(history);
       }
-      return [historyEntry, ...prevHistory.filter(entry => entry.id !== currentTestSessionId)]; 
-    });
-  }, [currentSetupConfig, currentTestName, currentTestSessionId]);
+    } catch (error) {
+      console.error('Error saving test session:', error);
+    }
+  }, [currentSetupConfig, currentTestName, currentTestSessionId, currentUser, allUsers]);
 
 
   const handleSubmitTest = useCallback(() => {
@@ -580,13 +615,31 @@ export function App() {
 
   const handleClearHistory = () => {
     if (window.confirm("Are you sure you want to clear all test history? This action cannot be undone.")) {
-      setTestHistory([]);
+      if (currentUser) {
+        const userId = allUsers.find(u => u.email === currentUser.email)?.email;
+        if (userId) {
+          DatabaseService.clearTestHistory(userId).then(success => {
+            if (success) {
+              setTestHistory([]);
+            }
+          });
+        }
+      }
     }
   };
   
   const handleDeleteHistoryEntry = (idToDelete: string) => {
     if (window.confirm("Are you sure you want to delete this test from your history? This action cannot be undone.")) {
-      setTestHistory(prev => prev.filter(entry => entry.id !== idToDelete));
+      if (currentUser) {
+        const userId = allUsers.find(u => u.email === currentUser.email)?.email;
+        if (userId) {
+          DatabaseService.deleteTestSession(userId, idToDelete).then(success => {
+            if (success) {
+              setTestHistory(prev => prev.filter(entry => entry.id !== idToDelete));
+            }
+          });
+        }
+      }
     }
   };
 
@@ -626,10 +679,11 @@ export function App() {
   };
   
   const handleSaveAndExit = useCallback(() => {
-    if (!currentSetupConfig || !currentTestSessionId) {
+    if (!currentSetupConfig || !currentTestSessionId || !currentUser) {
       setTestPhase(TestPhase.HOME);
       return;
     }
+
     const testToSave: SavedTestState = {
       id: Date.now().toString(),
       questions,
@@ -640,16 +694,35 @@ export function App() {
       currentTestSessionId,
       savedAt: Date.now(),
     };
-    addSavedTest(testToSave);
-    // Remove from in-progress slot if present
-    localStorage.removeItem(LOCAL_STORAGE_IN_PROGRESS_KEY);
-    setSavedInProgressTest(null);
-    setTestPhase(TestPhase.HOME);
-    alert('Test saved! You can find it in your Profile > Saved Tests.');
-  }, [questions, currentQuestionIndex, timeRemainingSeconds, testDurationSeconds, currentSetupConfig, currentTestSessionId]);
+
+    const userId = allUsers.find(u => u.email === currentUser.email)?.email;
+    if (userId) {
+      DatabaseService.saveSavedTest(userId, testToSave).then(success => {
+        if (success) {
+          setSavedTests(prev => [testToSave, ...prev]);
+          localStorage.removeItem(LOCAL_STORAGE_IN_PROGRESS_KEY);
+          setSavedInProgressTest(null);
+          setTestPhase(TestPhase.HOME);
+          alert('Test saved! You can find it in your Profile > Saved Tests.');
+        } else {
+          alert('Failed to save test. Please try again.');
+        }
+      });
+    }
+  }, [questions, currentQuestionIndex, timeRemainingSeconds, testDurationSeconds, currentSetupConfig, currentTestSessionId, currentUser, allUsers]);
 
   const handleResumeSavedTest = (test: SavedTestState) => {
-    removeSavedTest(test.id);
+    if (currentUser) {
+      const userId = allUsers.find(u => u.email === currentUser.email)?.email;
+      if (userId) {
+        DatabaseService.deleteSavedTest(userId, test.id).then(success => {
+          if (success) {
+            setSavedTests(prev => prev.filter(t => t.id !== test.id));
+          }
+        });
+      }
+    }
+
     setQuestions(test.questions);
     setCurrentQuestionIndex(test.currentQuestionIndex);
     setTimeRemainingSeconds(test.timeRemainingSeconds);
@@ -697,6 +770,7 @@ export function App() {
             currentUserRank={currentUserRank}
             currentUserFinalScore={currentUserFinalScore}
             onResumeSavedTest={handleResumeSavedTest}
+            savedTests={savedTests}
            />
          ) : null;
       case TestPhase.SETUP:

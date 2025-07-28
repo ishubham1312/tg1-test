@@ -7,8 +7,8 @@ import Button from './Button';
 import { cn } from './Button';
 import { MortarBoardIcon, ElsaAvatarIcon, CheckCircleIcon, GoogleIcon, EyeIcon, EyeSlashIcon, XIcon, XCircleIcon } from './Icons';
 import { APP_NAME } from '../constants';
+import { AuthService } from '../services/authService';
 
-const LOCAL_STORAGE_USERS_KEY = 'testGeniusUsers';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
 
@@ -98,27 +98,42 @@ const SignInForm: React.FC<SignInFormProps> = ({ onPhaseChange, onSignIn }) => {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setIsLoading(true);
 
-        const usersStr = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
-        const users: (User & { password: string })[] = usersStr ? JSON.parse(usersStr) : [];
-        const foundUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+        try {
+            const { user, error } = await AuthService.signIn(email, password);
+            
+            if (error) {
+                setError(error);
+                return;
+            }
 
-        if (!foundUser) {
-            setError('Email not registered. Please sign up.');
-            return;
+            if (user) {
+                onSignIn({
+                    name: user.name,
+                    email: user.email,
+                    initials: user.initials
+                });
+            }
+        } catch (err) {
+            setError('An unexpected error occurred. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
+    };
 
-        if (foundUser.password !== password) {
-            setError('Incorrect password.');
-            return;
+    const handleGoogleSignIn = async () => {
+        setError('');
+        const { error } = await AuthService.signInWithGoogle();
+        if (error) {
+            setError(error);
         }
-
-        onSignIn({ name: foundUser.name, email: foundUser.email, initials: foundUser.initials });
-    }
+    };
     
     return (
         <div className="space-y-6">
@@ -141,7 +156,9 @@ const SignInForm: React.FC<SignInFormProps> = ({ onPhaseChange, onSignIn }) => {
                     </div>
                 </div>
                 {error && <p className="text-sm text-destructive text-center bg-destructive/10 p-2 rounded-md">{error}</p>}
-                <Button type="submit" className="w-full" size="lg">Sign In</Button>
+                <Button type="submit" className="w-full" size="lg" isLoading={isLoading} disabled={isLoading}>
+                    {isLoading ? 'Signing In...' : 'Sign In'}
+                </Button>
             </form>
             <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -151,7 +168,15 @@ const SignInForm: React.FC<SignInFormProps> = ({ onPhaseChange, onSignIn }) => {
                     <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
                 </div>
             </div>
-            <Button variant="outline" className="w-full bg-background/50" size="lg"><GoogleIcon className="w-5 h-5 mr-2"/> Sign in with Google</Button>
+            <Button 
+                variant="outline" 
+                className="w-full bg-background/50" 
+                size="lg"
+                onClick={handleGoogleSignIn}
+                disabled={isLoading}
+            >
+                <GoogleIcon className="w-5 h-5 mr-2"/> Sign in with Google
+            </Button>
             <div className="text-center text-sm">
                 <button onClick={() => onPhaseChange(AuthPhase.RESET_PASSWORD)} className="font-medium text-primary hover:underline">Forgot Password?</button>
             </div>
@@ -225,6 +250,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onPhaseChange, onSignIn }) => {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     
     const [passwordTouched, setPasswordTouched] = useState(false);
     const [validation, setValidation] = useState({
@@ -253,31 +279,46 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onPhaseChange, onSignIn }) => {
     }, [password]);
 
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setIsLoading(true);
 
         if (strength < 4) {
             setError('Please ensure your password meets all criteria.');
+            setIsLoading(false);
             return;
         }
 
-        const usersStr = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
-        const users: (User & { password: string })[] = usersStr ? JSON.parse(usersStr) : [];
-        
-        if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
-            setError('Email is already registered.');
-            return;
+        try {
+            const { user, error } = await AuthService.signUp(email, password, name);
+            
+            if (error) {
+                setError(error);
+                return;
+            }
+
+            if (user) {
+                onSignIn({
+                    name: user.name,
+                    email: user.email,
+                    initials: user.initials
+                });
+            }
+        } catch (err) {
+            setError('An unexpected error occurred. Please try again.');
+        } finally {
+            setIsLoading(false);
         }
+    };
 
-        const initials = name.trim().split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() || 'TU';
-        const newUser = { name: name.trim(), email: email.toLowerCase().trim(), password, initials };
-        
-        users.push(newUser);
-        localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(users));
-
-        onSignIn({ name: newUser.name, email: newUser.email, initials: newUser.initials });
-    }
+    const handleGoogleSignIn = async () => {
+        setError('');
+        const { error } = await AuthService.signInWithGoogle();
+        if (error) {
+            setError(error);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -317,13 +358,23 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onPhaseChange, onSignIn }) => {
                 )}
 
                 {error && <p className="text-sm text-destructive text-center bg-destructive/10 p-2 rounded-md">{error}</p>}
-                <Button type="submit" className="w-full" size="lg">Create Account</Button>
+                <Button type="submit" className="w-full" size="lg" isLoading={isLoading} disabled={isLoading}>
+                    {isLoading ? 'Creating Account...' : 'Create Account'}
+                </Button>
             </form>
             <div className="relative">
                 <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border/50" /></div>
                 <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or continue with</span></div>
             </div>
-            <Button variant="outline" className="w-full bg-background/50" size="lg"><GoogleIcon className="w-5 h-5 mr-2"/> Sign in with Google</Button>
+            <Button 
+                variant="outline" 
+                className="w-full bg-background/50" 
+                size="lg"
+                onClick={handleGoogleSignIn}
+                disabled={isLoading}
+            >
+                <GoogleIcon className="w-5 h-5 mr-2"/> Sign in with Google
+            </Button>
             <div className="text-center text-sm text-muted-foreground">
                 Already have an account? <button onClick={() => onPhaseChange(AuthPhase.SIGN_IN)} className="font-medium text-primary hover:underline">Sign in</button>
             </div>
@@ -338,11 +389,31 @@ interface ResetPasswordFormProps {
 const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ onPhaseChange }) => {
     const [email, setEmail] = useState('');
     const [submitted, setSubmitted] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setSubmitted(true);
-    }
+        setError('');
+        setIsLoading(true);
+
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: `${window.location.origin}/reset-password`
+            });
+
+            if (error) {
+                setError(error.message);
+                return;
+            }
+
+            setSubmitted(true);
+        } catch (err) {
+            setError('An unexpected error occurred. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
     
     if (submitted) {
         return (
@@ -368,7 +439,10 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ onPhaseChange }) 
                     <label htmlFor="email-reset" className="text-sm font-medium">Email</label>
                     <Input id="email-reset" type="email" placeholder="Enter your email" value={email} onChange={e => setEmail(e.target.value)} required />
                 </div>
-                <Button type="submit" className="w-full" size="lg">Send Reset Email</Button>
+                {error && <p className="text-sm text-destructive text-center bg-destructive/10 p-2 rounded-md">{error}</p>}
+                <Button type="submit" className="w-full" size="lg" isLoading={isLoading} disabled={isLoading}>
+                    {isLoading ? 'Sending...' : 'Send Reset Email'}
+                </Button>
             </form>
             <div className="text-center text-sm">
                 <button onClick={() => onPhaseChange(AuthPhase.SIGN_IN)} className="font-medium text-primary hover:underline">Back to sign in</button>
