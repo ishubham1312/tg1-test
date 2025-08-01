@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import { AuthPhase, User } from '../types';
 import Button from './Button';
@@ -129,10 +126,12 @@ const SignInForm: React.FC<SignInFormProps> = ({ onPhaseChange, onSignIn }) => {
 
     const handleGoogleSignIn = async () => {
         setError('');
+        setIsLoading(true);
         const { error } = await AuthService.signInWithGoogle();
         if (error) {
             setError(error);
         }
+        setIsLoading(false);
     };
     
     return (
@@ -314,10 +313,12 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onPhaseChange, onSignIn }) => {
 
     const handleGoogleSignIn = async () => {
         setError('');
+        setIsLoading(true);
         const { error } = await AuthService.signInWithGoogle();
         if (error) {
             setError(error);
         }
+        setIsLoading(false);
     };
 
     return (

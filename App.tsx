@@ -101,6 +101,12 @@ export function App() {
   useEffect(() => {
     // Check for existing session
     const initializeAuth = async () => {
+      // Handle OAuth callback
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('Session error:', error);
+      }
+      
       const user = await AuthService.getCurrentUser();
       if (user) {
         setCurrentUser({
